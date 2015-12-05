@@ -1,0 +1,711 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; The following line is REQUIRED (do not remove)
+(require "puzlib.rkt")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Place your Personal Identification here
+
+;;**********************************************
+;;Rowan Dempster (20635120)
+;;CS 135 Fall 2015
+;;Assignment 10, Problem 2
+;;**********************************************
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; DATA DEFINITIONS
+
+;; A Puzzle is a (list (listof String) (listof String))
+
+;; A Grid is a (listof (listof Char))
+
+
+(define-struct wpos (row col horiz? len))
+;; A WPos (Word Position) is a (make-wpos Nat Nat Bool Nat)
+;; requires: len > 1
+
+(define-struct state (grid positions words))
+;; A State is a (make-state Grid (listof WPos) (listof Str))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; CONSTANTS FOR TESTING:
+
+(define puzz01 (read-puzzle "puzzle01.txt"))
+(define grid-abc '((#\A #\B #\C) (#\X #\Y #\Z)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; PROVIDED HELPER:
+
+;; (flip wp) transposes wp by reversing row/col and negating horiz?
+;; flip: WPos -> WPos
+;; Example:
+(check-expect (flip (make-wpos 3 4 true 5))
+              (make-wpos 4 3 false 5))
+
+(define (flip wp)
+  (make-wpos (wpos-col wp) (wpos-row wp) (not (wpos-horiz? wp)) (wpos-len wp)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; REQUIRED FUNCTIONS:
+
+
+;; (transpose g) Swaps each element's in Grid 'g' x and y position
+;; transpose: Grid -> Grid
+;;requires: none of the rows in g are empty, and g is rectangular
+;; Examples:
+(check-expect (transpose grid-abc) '((#\A #\X) (#\B #\Y) (#\C #\Z)))
+(check-expect (transpose '((#\a #\b #\c))) '((#\a) (#\b) (#\c)))
+(check-expect (transpose '((#\a) (#\b) (#\c))) '((#\a #\b #\c)))
+
+(define (transpose g)
+  (local
+    ;;(make-row g) produces a list containing the the first element in each
+    ;;   row of Grid g
+    ;;make-row: Grid -> (listof Char)
+    [(define (make-row g)
+       (cond
+         [(empty? g) empty]
+         [else (cons (first (first g)) (make-row (rest g)))]))
+     ;;(remove-first-col g) produces a new Grid that is g with the first
+     ;;   element from each row removed
+     ;;remove-first-col: Grid -> Grid
+     (define (remove-first-col g)
+       (cond
+         [(empty? g) empty]
+         [else (append (list (rest (first g))) (remove-first-col (rest g)))]))]
+    (cond
+      [(empty? g) empty]
+      [(empty? (first g)) empty]
+      [else (cons (make-row g) (transpose (remove-first-col g)))])))
+
+;; Tests:
+(check-expect (transpose empty) empty)
+(check-expect (transpose '((#\a #\b) (#\c #\d) (#\w #\x) (#\y #\z))) 
+              '((#\a #\c #\w #\y) (#\b #\d #\x #\z)))
+
+
+
+;; (find-wpos loc row) produces a list of all WPos in loc, where the col field
+;;   marks the beggining of the Word
+;; find-wpos: (listof Char) Nat -> (listof WPos)
+;; Examples:
+(check-expect (find-wpos (string->list "####") 0)
+              (list (make-wpos 0 0 true 4)))
+(check-expect (find-wpos (string->list ".#.#.#.##..###.##") 0)
+              (list (make-wpos 0 7 true 2)
+                    (make-wpos 0 11 true 3)
+                    (make-wpos 0 15 true 2)))
+(check-expect (find-wpos (string->list "..##.#.#.#.##..###.##..") 0)
+              (list (make-wpos 0 2 true 2)
+                    (make-wpos 0 11 true 2)
+                    (make-wpos 0 15 true 3)
+                    (make-wpos 0 19 true 2)))
+
+(define (find-wpos loc row)
+  (local
+    ;;(find-wpos-acc new-start loc row) adds a accumulator to keep track of
+    ;;   the new starting col of any future words
+    ;; find-wpos-acc: Nat (listof Char) Nat -> (listof WPos)
+    [(define (find-wpos-acc index loc row)
+       (cond
+         [(empty? (find-first-wpos (cut-loc index loc) 0 0 0 0 0)) empty]
+         [else (cons (find-first-wpos loc row 0 0 0 index)
+                     (find-wpos-acc (get-new-index index loc) loc row))]))
+     ;;(cut-loc n loc) removes the first (n-1) elements from loc
+     ;;cut-loc: Nat (listof Char) -> (listof Char)
+     (define (cut-loc n loc)
+       (cond
+         [(>= 0 n) loc]
+         [else (cut-loc (sub1 n) (rest loc))]))
+     ;;(get-new-index old-index loc) produces the new starting index which is
+     ;;   the end of the next wpos
+     ;;get-new-index: Nat (listof Char) -> Nat
+     (define (get-new-index old-index loc)
+       (+ old-index (+ (wpos-col (find-first-wpos (cut-loc old-index loc)
+                                                  0 0 0 0 0))
+                       (wpos-len (find-first-wpos (cut-loc old-index loc)
+                                                  0 0 0 0 0)))))
+     ;;(find-first-wpos loc row len-acc total-col-acc word-start) produces the
+     ;;   first wpos encountered in loc
+     ;;find-first-wpos: (listof Char) Nat Nat Nat Nat
+     (define (find-first-wpos loc row len-acc total-col-acc word-start
+                              start-index)
+       (local
+         [(define (find-first-wpos-post-cut cut-loc row len-acc total-col-acc
+                                            word-start start-index)
+            (cond
+              [(and (empty? cut-loc) (>= len-acc 2))
+               (make-wpos row (+ word-start start-index) true len-acc)]
+              [(empty? cut-loc) empty]
+              [(char=? (first cut-loc) #\#)
+               (find-first-wpos-post-cut (rest cut-loc) row (add1 len-acc)
+                                         (add1 total-col-acc)
+                                         word-start start-index)]
+              [(>= len-acc 2) (make-wpos row (+ word-start start-index)
+                                         true len-acc)]
+              [else (find-first-wpos-post-cut (rest cut-loc) row 0
+                                              (add1 total-col-acc)
+                                              (add1 total-col-acc)
+                                              start-index)]))]
+         (find-first-wpos-post-cut (cut-loc start-index loc)
+                                   row 0 0 0 start-index)))]
+    (find-wpos-acc 0 loc row)))
+
+;; Tests:
+(check-expect (find-wpos (string->list "###") 5)
+              (list (make-wpos 5 0 true 3)))
+(check-expect (find-wpos (string->list "..####..") 5)
+              (list (make-wpos 5 2 true 4)))
+(check-expect  (find-wpos (string->list "..####...###..") 5)
+               (list (make-wpos 5 2 true 4)
+                     (make-wpos 5 9 true 3)))
+(check-expect (find-wpos (string->list "#.#..#.#") 5)
+              empty)
+(check-expect (find-wpos empty 5)
+              empty)
+
+
+
+;; (initial-state puzzle) produces the initial State of the empty Puzzle
+;;   'puzzle'
+;; initial-state: Puzzle -> State
+;;Examples:
+(check-expect (initial-state puzz01)
+              (make-state (list (list #\# #\# #\#))
+                          (list (make-wpos 0 0 true 3))
+                          (list "CAT")))
+(check-expect (initial-state '(("#.##..###" "#.#.##.#." ".###.#..." "##..###.#"
+                                            ".##.##..#" "#.#...###")
+                               ("hello" "there" "rowan")))
+              (make-state (list (string->list "#.##..###")
+                                (string->list "#.#.##.#.")
+                                (string->list ".###.#...")
+                                (string->list "##..###.#")
+                                (string->list ".##.##..#")
+                                (string->list "#.#...###"))
+                          (list (make-wpos 0 2 true 2) (make-wpos 0 6 true 3)
+                                (make-wpos 1 4 true 2) (make-wpos 2 1 true 3)
+                                (make-wpos 3 0 true 2) (make-wpos 3 4 true 3)
+                                (make-wpos 4 1 true 2) (make-wpos 4 4 true 2)
+                                (make-wpos 5 6 true 3) (make-wpos 0 0 false 2)
+                                (make-wpos 2 1 false 3) (make-wpos 0 2 false 3)
+                                (make-wpos 4 2 false 2) (make-wpos 3 4 false 2)
+                                (make-wpos 1 5 false 4) (make-wpos 0 7 false 2)
+                                (make-wpos 3 8 false 3))
+                          (list "hello" "there" "rowan")))
+(check-expect (initial-state '(("##.###"
+                                "###.##"
+                                "###.#."
+                                "..#.##")
+                               ("bye" "then" "rowan")))
+              (make-state (list (string->list "##.###")
+                                (string->list "###.##")
+                                (string->list "###.#.")
+                                (string->list "..#.##"))
+                          (list (make-wpos 0 0 true 2) (make-wpos 0 3 true 3)
+                                (make-wpos 1 0 true 3) (make-wpos 1 4 true 2)
+                                (make-wpos 2 0 true 3) (make-wpos 3 4 true 2)
+                                (make-wpos 0 0 false 3) (make-wpos 0 1 false 3)
+                                (make-wpos 1 2 false 3) (make-wpos 0 4 false 4)
+                                (make-wpos 0 5 false 2))
+                          (list "bye" "then" "rowan")))
+
+(define (initial-state puzzle)
+  (local
+    ;;(get-grid puzzle) produces the Grid that the first (listof Str) in puzzle
+    ;;   represents
+    ;;get-grid: Puzzle -> Grid
+    [(define (get-grid puzzle)
+       (local
+         ;;(get-grid-str grid-str) produces the Grid that grid-str represents
+         ;;get-grid-str: (listof Str) -> Grid
+         [(define (get-grid-str grid-str)
+            (cond
+              [(empty? grid-str) empty]
+              [else (cons (string->list (first grid-str)) (get-grid-str
+                                                           (rest grid-str)))]))]
+         (get-grid-str (first puzzle))))
+     ;;(get-horiz-wpos grid current-row) produces all horizontal WPos in grid
+     ;;get-horiz-wpos: Grid Nat -> (listof WPos)
+     (define (get-horiz-wpos grid current-row)
+       (cond
+         [(empty? grid) empty]
+         [else (append (find-wpos (first grid) current-row)
+                       (get-horiz-wpos (rest grid) (add1 current-row)))]))
+     ;;(flip-all lowpos) applies flip to all WPos in lowpos
+     ;;flip-all: (listof WPos) -> (listof WPos)
+     (define (flip-all lowpos)
+       (cond
+         [(empty? lowpos) empty]
+         [else (cons (flip (first lowpos)) (flip-all (rest lowpos)))]))
+     ;;(get-vert-wpos grid) procudes all vertial WPos in grid
+     ;;get-vert-wpos: Grid -> (listof WPos)
+     (define (get-vert-wpos grid)
+       (flip-all (get-horiz-wpos (transpose grid) 0)))]
+    (make-state (get-grid puzzle) (append (get-horiz-wpos (get-grid puzzle) 0)
+                                          (get-vert-wpos (get-grid puzzle)))
+                (second puzzle))))
+
+;; Tests:
+(check-expect (initial-state '(("..##..###..##") ("test")))
+              (make-state (list (string->list "..##..###..##"))
+                          (list (make-wpos 0 2 true 2)
+                                (make-wpos 0 6 true 3)
+                                (make-wpos 0 11 true 2))
+                          (list "test")))
+(check-expect (initial-state '(("." "." "#" "#" "." "." "#" "#" "#" "." "."
+                                    "#" "#") ("test")))
+              (make-state (list '(#\.) '(#\.) '(#\#) '(#\#) '(#\.) '(#\.) '(#\#)
+                                '(#\#) '(#\#) '(#\.) '(#\.) '(#\#) '(#\#))
+                          (list (make-wpos 2 0 false 2)
+                                (make-wpos 6 0 false 3)
+                                (make-wpos 11 0 false 2))
+                          (list "test")))
+(check-expect (initial-state (list empty '("test")))
+              (make-state empty
+                          empty
+                          (list "test")))
+
+
+
+;; (extract-wpos g wp) produces the (listof Char) that appears at the row and
+;;   col specified in wp
+;; extract-wpos: Grid WPos -> (listof Char)
+;; Examples: 
+(check-expect (extract-wpos grid-abc (make-wpos 0 0 true 2)) '(#\A #\B))
+(check-expect (extract-wpos grid-abc (make-wpos 0 0 false 2)) '(#\A #\X))
+(check-expect (extract-wpos grid-abc (make-wpos 0 2 false 2)) '(#\C #\Z))
+
+(define (extract-wpos g wp)
+  (local
+    ;;(get-horiz-wpos g wp row col) produces the (listofChar) that appears
+    ;;   at the row and col specified in 'row' and 'col'
+    ;;get-horiz-wpos: Grid WPos Nat Nat -> (listof Char)
+    ;;requires: wp is horizontal
+    [(define (get-horiz-wpos g wp row col)
+       (cond
+         [(empty? g) empty]
+         [(and (= 0 row) (= 0 col)) (take (first g) (wpos-len wp))]
+         [(= 0 row) (get-horiz-wpos (remove-first-col g) wp row (sub1 col))]
+         [else (get-horiz-wpos (rest g) wp (sub1 row) col)]))
+     ;;(remove-first-col g) produces g with its first col removed
+     ;;remove-first-col: Grid -> Grid
+     (define (remove-first-col g)
+       (cond
+         [(empty? g) empty]
+         [else (append (list (rest (first g)))
+                       (remove-first-col (rest g)))]))
+     ;;(take list n) produces a list of the first n elements in list
+     ;;take: (listof X) Nat -> (listof X)
+     (define (take list n)
+       (cond
+         [(>= n (length list)) list]
+         [(> n 0) (cons (first list) (take (rest list) (sub1 n)))]
+         [else empty]))
+     ;;(get-horiz-wpos g wp row col) produces the (listofChar) that appears
+     ;;   at the row and col specified in 'row' and 'col'
+     ;;get-horiz-wpos: Grid WPos Nat Nat -> (listof Char)
+     ;;requires: wp is vertical
+     (define (get-vert-wpos g wp row col)
+       (cond
+         [(empty? g) empty]
+         [(and (= 0 row) (= 0 col)) (take (extract-col g) (wpos-len wp))]
+         [(= 0 row) (get-vert-wpos (remove-first-col g) wp row (sub1 col))]
+         [else (get-vert-wpos (rest g) wp (sub1 row) col)]))
+     ;;(extract-col g) procudes a list containing the first col in g
+     ;;extract-col: Grid -> (listof Char)
+     (define (extract-col g)
+       (cond
+         [(empty? g) empty]
+         [else (cons (first (first g)) (extract-col (rest g)))]))]
+    (cond
+      [(wpos-horiz? wp) (get-horiz-wpos g wp (wpos-row wp) (wpos-col wp))]
+      [else (get-vert-wpos g wp (wpos-row  wp)
+                           (wpos-col wp))])))
+
+;; Tests:
+(check-expect (extract-wpos (list (string->list "#.#.#") (string->list ".abc.")
+                                  (string->list "x.#.r") (string->list "y#.#s"))
+                            (make-wpos 2 0 false 2))
+              (string->list "xy"))
+(check-expect (extract-wpos (list (string->list "#.#.#") (string->list ".abc.")
+                                  (string->list "x.#.r") (string->list "y#.#s"))
+                            (make-wpos 1 1 true 3))
+              (string->list "abc"))
+(check-expect (extract-wpos (list (string->list "#.#.#") (string->list ".abc.")
+                                  (string->list "x.#.r") (string->list "y#.#s"))
+                            (make-wpos 0 2 false 3))
+              (string->list "#b#"))
+(check-expect (extract-wpos (list (string->list "#.#.#") (string->list ".abc.")
+                                  (string->list "x.#.r") (string->list "y#.#s"))
+                            (make-wpos 3 3 true 2))
+              (string->list "#s"))
+(check-expect (extract-wpos (list (string->list "#.#.#") (string->list ".abc.")
+                                  (string->list "x.#.r") (string->list "y#.#s"))
+                            (make-wpos 2 4 false 2))
+              (string->list "rs"))
+(check-expect (extract-wpos empty
+                            (make-wpos 2 4 false 2))
+              empty)
+
+
+
+;; (replace-wpos g wp loc) produces a new Grid that is g with loc inserted
+;;   into the WPos given by wp
+;; replace-wpos: Grid WPos (listof Char) -> Grid
+;; requires: len in WPos is equal to length of (listof Char)
+;; Examples:
+(check-expect (replace-wpos grid-abc (make-wpos 0 0 true 2) '(#\J #\K))
+              '((#\J #\K #\C) (#\X #\Y #\Z)))
+(check-expect (replace-wpos grid-abc (make-wpos 0 0 false 2) '(#\J #\K))
+              '((#\J #\B #\C) (#\K #\Y #\Z)))
+(check-expect (replace-wpos grid-abc (make-wpos 0 2 false 2) '(#\J #\K))
+              '((#\A #\B #\J) (#\X #\Y #\K)))
+
+(define (replace-wpos g wp loc)
+  (local
+    ;;(replace-wpos-horiz g horiz-wp loc row col row-acc col-acc) produces a
+    ;;   Grid with loc inserted into horiz-wp's position
+    ;;replace-wpos-horiz: Grid WPos (listof Char) Nat Nat (listof (listof Char))
+    ;;   (listof (listof Char)) -> Grid
+    ;;requires: horiz-wp is a horizontal WPos
+    [(define (replace-wpos-horiz g horiz-wp loc row col row-acc col-acc)
+       (cond
+         [(empty? g) empty]
+         [(and (= 0 row) (= 0 col))
+          (append row-acc (add-cols col-acc
+                                    (append (list
+                                             (append loc
+                                                     (remove-n
+                                                      (first g)
+                                                      (wpos-len horiz-wp))))
+                                            (rest g))))]
+         [(= 0 row) (replace-wpos-horiz
+                     (remove-first-col g) horiz-wp loc row
+                     (sub1 col) row-acc (cons (extract-col g) col-acc))]
+         [else (replace-wpos-horiz (rest g) horiz-wp loc (sub1 row)
+                                   col (append row-acc
+                                               (list (first g))) col-acc)]))
+     ;;(replace-wpos-vert g vert-wp loc row col row-acc col-acc) produces a
+     ;;   Grid with loc inserted into vert-wp's position
+     ;;replace-wpos-horiz: Grid WPos (listof Char) Nat Nat 
+     ;;   (listof (listof Char)) (listof (listof Char)) -> Grid
+     ;;requires: vert-wp is a vertical WPos
+     (define (replace-wpos-vert g vert-wp loc row col row-acc col-acc)
+       (cond
+         [(empty? g) empty]
+         [(and (= 0 row) (= 0 col))
+          (append row-acc (add-cols col-acc
+                                    (add-col 
+                                     (append loc
+                                             (remove-n  (extract-col
+                                                         g) (wpos-len vert-wp)))
+                                     (remove-first-col g) empty)))]
+         [(= 0 row) (replace-wpos-vert
+                     (remove-first-col g) vert-wp loc row
+                     (sub1 col) row-acc (cons (extract-col g)col-acc
+                                              ))]
+         [else (replace-wpos-vert (rest g) vert-wp loc (sub1 row)
+                                  col (append row-acc
+                                              (list (first g))) col-acc)]))
+     ;;(remove-n list n) removes the first n elements from list
+     ;;remove-n: (listof X) Nat -> (listof X)
+     ;;requires: n <= (length list)
+     (define (remove-n list n)
+       (cond
+         [(empty? list) empty]
+         [(= n 0) list]
+         [else (remove-n (rest list) (sub1 n))]))
+     ;;(remove-first-col g) removes the first col from Grid g
+     ;;remove-first-col: Grid -> Grid
+     (define (remove-first-col g)
+       (cond
+         [(empty? g) empty]
+         [else (append (list (rest (first g)))
+                       (remove-first-col (rest g)))]))
+     (define (extract-col g)
+       (cond
+         [(empty? g) empty]
+         [else (cons (first (first g)) (extract-col (rest g)))]))
+     ;;(add-cols cols grid grid-so-far) adds all cols in 'cols' to the
+     ;; beggining of grid
+     ;;add-cols: (listof Char) Grid Grid -> Grid
+     (define (add-cols cols grid)
+       (cond
+         [(empty? cols) grid]
+         [else (add-cols (rest cols) (add-col (first cols) grid empty))]))
+     (define (add-col col grid grid-so-far)
+       (cond
+         [(empty? col) grid-so-far]
+         [else (add-col (rest col) (rest grid)
+                        (append grid-so-far (list (cons (first col)
+                                                        (first grid)))))]))]
+    (cond
+      [(false? (wpos-horiz? wp)) (replace-wpos-vert g wp
+                                                    loc (wpos-row wp)
+                                                    (wpos-col wp) empty
+                                                    empty)]
+      [(wpos-horiz? wp) (replace-wpos-horiz g wp loc (wpos-row wp)
+                                            (wpos-col wp) empty empty)])))
+
+;; Tests:
+(check-expect (replace-wpos (list (string->list "##.###")
+                                  (string->list "###.##")
+                                  (string->list "###.#.")
+                                  (string->list "..#.##"))
+                            (make-wpos 0 0 true 2)
+                            (list #\a #\b))
+              (list (string->list "ab.###") (string->list "###.##")
+                    (string->list "###.#.") (string->list "..#.##")))
+
+(check-expect (replace-wpos (list (string->list "##.###")
+                                  (string->list "###.##")
+                                  (string->list "###.#.")
+                                  (string->list "..#.##"))
+                            (make-wpos 0 3 true 3)
+                            (list #\a #\b #\c))
+              (list (string->list "##.abc") (string->list "###.##")
+                    (string->list "###.#.") (string->list "..#.##")))
+
+(check-expect (replace-wpos (list (string->list "##.###")
+                                  (string->list "###.##")
+                                  (string->list "###.#.")
+                                  (string->list "..#.##"))
+                            (make-wpos 1 4 true 2)
+                            (list #\a #\b))
+              (list (string->list "##.###") (string->list "###.ab")
+                    (string->list "###.#.") (string->list "..#.##")))
+
+(check-expect (replace-wpos (list (string->list "##.###")
+                                  (string->list "###.##")
+                                  (string->list "###.#.")
+                                  (string->list "..#.##"))
+                            (make-wpos 1 2 false 3)
+                            (list #\a #\b #\c))
+              (list (string->list "##.###") (string->list "##a.##")
+                    (string->list "##b.#.")  (string->list "..c.##")))
+(check-expect (replace-wpos (list (string->list "##.###")
+                                  (string->list "###.##"))
+                            (make-wpos 0 5 false 2)
+                            (list #\a #\b))
+              (list (string->list "##.##a")
+                    (string->list "###.#b")))
+(check-expect (replace-wpos empty
+                            (make-wpos 0 5 false 2)
+                            (list #\a #\b))
+              empty)
+
+
+
+;; (fit? word cells) produces true if word can be placed in cells,
+;;   false otherwise
+;; fit? (listof Char) (listof Char) -> Bool
+;; Examples:
+(check-expect (fit? (string->list "STARWARS") (string->list "S##RW##S")) true)
+(check-expect (fit? (string->list "STARWARS") (string->list "S##RT##K")) false)
+(check-expect (fit? (string->list "STARWARS") (string->list "#S##RT##K")) false)
+
+(define (fit? word cells)
+  (cond
+    [(not (= (length word) (length cells))) false]
+    [(and (empty? cells) (empty? word)) true]
+    [(not (or (char=? (first word) (first cells)) (char=? #\# (first cells))))
+     false]
+    [else (fit? (rest word) (rest cells))]))
+
+;; Tests:
+(check-expect (fit? (string->list "STARWARS") (string->list "STARWARS")) true)
+(check-expect (fit? (string->list "STARWARS") (string->list "########")) true)
+(check-expect (fit? (string->list "STARWARS") (string->list "####.###")) false)
+(check-expect (fit? (string->list "STARWARS") empty) false)
+(check-expect (fit? empty empty) true)
+(check-expect (fit? empty (string->list "#")) false)
+(check-expect (fit? empty (string->list "")) true)
+
+
+
+;; (neighbours s) produces a list of States that are State 's' with all of
+;;   its Words placed into a selected WPos. The WPos selected is based on how
+;;   many of its cells are already letters (more letters=better)
+;; neighbours: State -> (listof State)
+;; Examples:
+(check-expect (neighbours (make-state (list (list #\# #\# #\#))
+                                      (list (make-wpos 0 0 true 3))
+                                      (list "CAT")))
+              (list (make-state '((#\C #\A #\T)) empty empty)))
+(check-expect (neighbours (make-state (list (string->list "#####")
+                                            (string->list "abcd.")
+                                            (string->list "ef..#")
+                                            (string->list "zg..#")
+                                            (string->list ".####"))
+                                      (list (make-wpos 0 0 true 4)
+                                            (make-wpos 1 1 false 4)
+                                            (make-wpos 4 1 true 4)
+                                            (make-wpos 2 4 false 3))
+                                      (list "bfgx" "bfgy" "bfgxy")))
+              (list (make-state (list (string->list "#####")
+                                      (string->list "abcd.")
+                                      (string->list "ef..#")
+                                      (string->list "zg..#")
+                                      (string->list ".y###"))
+                                (list (make-wpos 0 0 true 4)
+                                      (make-wpos 4 1 true 4)
+                                      (make-wpos 2 4 false 3))
+                                (list "bfgx" "bfgxy"))
+                    (make-state (list (string->list "#####")
+                                      (string->list "abcd.")
+                                      (string->list "ef..#")
+                                      (string->list "zg..#")
+                                      (string->list ".x###"))
+                                (list (make-wpos 0 0 true 4)
+                                      (make-wpos 4 1 true 4)
+                                      (make-wpos 2 4 false 3))
+                                (list "bfgy" "bfgxy"))))
+
+(define (neighbours s)
+  (local
+    ;;(pick-wpos s lowpos best-wpos-so-far) produces the "best" wpos to start
+    ;;   matching words with, chooses based on how many chars wpos has already
+    ;;   filled in in s
+    ;;pick-wpos: State (listof WPos) WPos -> WPos
+    [(define (pick-wpos s lowpos best-wpos-so-far)
+       (cond
+         [(empty? lowpos) best-wpos-so-far]
+         [(>= (count-letters (extract-wpos (state-grid s) (first lowpos)))
+              (count-letters (extract-wpos (state-grid s) best-wpos-so-far)))
+          (pick-wpos s (rest lowpos) (first lowpos))]
+         [else (pick-wpos s (rest lowpos) best-wpos-so-far)]))
+     ;;(count-letters loc) counts the number of letters in loc
+     ;;count-letters: (listof Char) -> Nat
+     (define (count-letters loc)
+       (cond
+         [(empty? loc) 0]
+         [(not (or (char=? #\# (first loc)) (char=? #\. (first loc))))
+          (+ 1 (count-letters (rest loc)))]
+         [else (count-letters (rest loc))]))
+     ;;(neighbours-picked-wpos s words wpos lostate-so-far) produces a list
+     ;;   of all possible States that are 's' with all words that fit in wpos
+     ;;   placed there in 's'
+     ;;neighbours-picked-wpos: State (listof String) WPos (listof State)
+     ;;   -> (listof State)
+     (define (neighbours-picked-wpos s words wpos lostate-so-far)
+       (cond
+         [(empty? words) lostate-so-far]
+         [(fit? (string->list (first words))
+                (extract-wpos (state-grid s) wpos))
+          (neighbours-picked-wpos s (rest words) wpos
+                                  (cons (make-state
+                                         (replace-wpos (state-grid s) wpos
+                                                       (string->list
+                                                        (first words)))
+                                         (remove wpos (state-positions s))
+                                         (remove (first words) (state-words s)))
+                                        lostate-so-far))]
+         [else (neighbours-picked-wpos s (rest words) wpos lostate-so-far)]))]
+    (neighbours-picked-wpos s (state-words s)
+                            (pick-wpos s (state-positions s)
+                                       (first (state-positions s))) empty)))
+
+;; Tests:
+(check-expect (neighbours (make-state '((#\C #\# #\#))
+                                      (list (make-wpos 0 0 true 3))
+                                      '("CAT" "DOG" "CAR")))
+              (list 
+               (make-state '((#\C #\A #\R)) empty '("CAT" "DOG"))
+               (make-state '((#\C #\A #\T)) empty '("DOG" "CAR"))))
+(check-expect (neighbours (make-state (list (string->list "#####")
+                                            (string->list "a.cd.")
+                                            (string->list "e#..m")
+                                            (string->list "z#..n")
+                                            (string->list ".###o"))
+                                      (list (make-wpos 0 0 true 4)
+                                            (make-wpos 2 1 false 3)
+                                            (make-wpos 4 1 true 4))
+                                      (list "xyzo" "cool" "cooo" "coool"
+                                            "helo")))
+              (list (make-state (list (string->list "#####")
+                                      (string->list "a.cd.")
+                                      (string->list "e#..m")
+                                      (string->list "z#..n")
+                                      (string->list ".helo"))
+                                (list (make-wpos 0 0 true 4)
+                                      (make-wpos 2 1 false 3)
+                                      )
+                                (list "xyzo" "cool" "cooo" "coool"))
+                    (make-state (list (string->list "#####")
+                                      (string->list "a.cd.")
+                                      (string->list "e#..m")
+                                      (string->list "z#..n")
+                                      (string->list ".cooo"))
+                                (list (make-wpos 0 0 true 4)
+                                      (make-wpos 2 1 false 3)
+                                      )
+                                (list "xyzo" "cool" "coool" "helo"))
+                    (make-state (list (string->list "#####")
+                                      (string->list "a.cd.")
+                                      (string->list "e#..m")
+                                      (string->list "z#..n")
+                                      (string->list ".xyzo"))
+                                (list (make-wpos 0 0 true 4)
+                                      (make-wpos 2 1 false 3)
+                                      )
+                                (list "cool" "cooo" "coool" "helo"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; PROVIDED FUNCTIONS:
+
+;; (solved? s) determines if s is a solved criss-cross problem
+;;   by checking if all of the word positions have been filled
+;; solved?: State -> Bool
+(define (solved? s)
+  (empty? (state-positions s)))
+
+
+;; (criss-cross puzzle) produces a list of strings corresponding
+;;   to the solution of the the criss-cross puzzle,
+;;   or false if no solution is possible
+;; criss-cross: Puzzle -> (anyof false (listof Str))
+
+(define (criss-cross puzzle)
+  (local [(define result (solve (initial-state puzzle)
+                                neighbours
+                                solved?))]
+    (cond [(false? result) false]
+          [else (map list->string (state-grid result))])))
+
+;(check-expect (criss-cross puzz01) '("CAT"))
+
+;; note that [solve] (used in criss-cross above) is provided in puzlib.rkt
+
+
+
+;; when you are all done, you can use disp to
+;; view your solutions:
+
+;(disp (criss-cross (read-puzzle "puzzle02.txt")))
+;(disp (criss-cross (read-puzzle "puzzle03.txt")))
+;(disp (criss-cross (read-puzzle "puzzle04.txt")))
+;(disp (criss-cross (read-puzzle "puzzle05.txt")))
+;(disp (criss-cross (read-puzzle "puzzle06.txt")))
+;(disp (criss-cross (read-puzzle "puzzle07.txt")))
+;(disp (criss-cross (read-puzzle "puzzle08.txt")))
+;(disp (criss-cross (read-puzzle "puzzle09.txt")))
+;(disp (criss-cross (read-puzzle "puzzle10.txt")))
+
+;(disp (criss-cross (read-puzzle "mypuzz.txt")))
+
+
+
+
+
+;; NOTE: Do NOT leave top-level expressions in your code.
+;;       In other words, when your code is run, only the
+;;       check-expect message "All X tests passed!"
+;;       should appear in the interactions window
+
