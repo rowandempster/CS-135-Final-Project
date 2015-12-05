@@ -2,4 +2,3 @@
 Graphing function that solves a crossword!
 Check out the video of it working!
 
-path finding
